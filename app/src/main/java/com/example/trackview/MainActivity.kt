@@ -36,6 +36,38 @@ class MainActivity : AppCompatActivity() {
         // الفرق في السطوع اللي يعتبر تغيير في النقطة (من 0 إلى 255)
         private const val PIXEL_THRESHOLD = 25
 
+        // نسبة النقاط المتغيرة اللي تعتبر حركة. ارفعها لتقليل الإنذارات الكاذبة
+        private const val MOTION_RATIO = 0.03f
+
+        // كل كم ملي ثانية نقارن الصورة بالسابقة
+        private const val COMPARE_INTERVAL_MS = 250L
+
+        // أقل فترة بين صوتين تنبيه
+        private const val ALERT_COOLDOWN_MS = 3000L
+    }
+
+    private lateinit var previewView: PreviewView
+    private lateinit var statusText: TextView
+    private lateinit var analysisExecutor: ExecutorService
+
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private var toneGenerator: ToneGenerator? = null
+
+    private var previousFrame: IntArray? = null
+    private var lastCompareTime = 0L
+    private var lastAlertTime = 0L
+
+    private val resetStatus = Runnable { showIdleStatus() }
+
+    private val permissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                startCamera()
+            } else {
+                Toast.makeText(this, "لازم تسمح باستخدام الكاميرا", Toast.LENGTH_LONG).show()
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
