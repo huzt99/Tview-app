@@ -52,13 +52,11 @@ fun loadOrCreateRoom(context: Context): String {
 class CameraService : LifecycleService() {
 
     companion object {
-        // رابط قاعدة بيانات Firebase حقتك
         const val DB_URL = "https://tview-12deb-default-rtdb.europe-west1.firebasedatabase.app"
-
-        // رابط صفحة المشاهدة على GitHub Pages
         const val VIEWER_BASE = "https://huzt99.github.io/Tview-app/"
 
         const val ACTION_STOP = "com.example.trackview.ACTION_STOP"
+        const val ACTION_SWITCH_CAMERA = "com.example.trackview.ACTION_SWITCH_CAMERA"
         private const val CHANNEL_ID = "tview_monitor"
         private const val NOTIFICATION_ID = 1
 
@@ -79,6 +77,7 @@ class CameraService : LifecycleService() {
         // ---- حالة تقراها الواجهة ----
         @Volatile var instance: CameraService? = null
         @Volatile var monitoring = false
+        @Volatile var usingFrontCamera = false
         @Volatile var lanLink = ""
         @Volatile var lastRemoteStatus = "جاري تجهيز البث من أي مكان…"
 
@@ -88,10 +87,14 @@ class CameraService : LifecycleService() {
 
         @Volatile private var previewView: PreviewView? = null
 
-        /** تنادى من الواجهة (على الخيط الرئيسي) لعرض الصورة، أو null لإخفائها */
         fun setPreviewView(view: PreviewView?) {
             previewView = view
             instance?.applyPreview()
+        }
+
+        /** يبدّل بين الكاميرا الخلفية والأمامية أثناء التشغيل */
+        fun switchCamera() {
+            instance?.doSwitchCamera()
         }
     }
 
@@ -120,11 +123,17 @@ class CameraService : LifecycleService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
 
-        if (intent?.action == ACTION_STOP) {
-            stopMonitoring()
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                stopMonitoring()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_SWITCH_CAMERA -> {
+                doSwitchCamera()
+                return START_NOT_STICKY
+            }
         }
 
         startInForeground()
@@ -139,21 +148,22 @@ class CameraService : LifecycleService() {
     }
 
     // ------------------------------------------------------------------
-    // الإشعار (لازم للخدمات اللي تشتغل بالخلفية)
+    // الإشعار: مطلوب من نظام أندرويد لأي خدمة كاميرا/مايك تشتغل بالخلفية،
+    // ولا يمكن إلغاؤه، لكن نخليه بأقل درجة أهمية: بدون صوت، وما يظهر فوق الشاشة.
     // ------------------------------------------------------------------
 
     private fun startInForeground() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "المراقبة", NotificationManager.IMPORTANCE_LOW)
-            )
+            val channel = NotificationChannel(CHANNEL_ID, "المراقبة", NotificationManager.IMPORTANCE_MIN)
+            channel.setShowBadge(false)
+            manager.createNotificationChannel(channel)
         }
         ServiceCompat.startForeground(
             this,
             NOTIFICATION_ID,
             buildNotification(),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
         )
     }
 
@@ -175,6 +185,8 @@ class CameraService : LifecycleService() {
             .setContentText("الكاميرا تعمل بالخلفية")
             .setContentIntent(openIntent)
             .addAction(0, "إيقاف", stopIntent)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setSilent(true)
             .setOngoing(true)
             .build()
     }
@@ -248,6 +260,13 @@ class CameraService : LifecycleService() {
         onStateChanged?.invoke()
     }
 
+    private fun doSwitchCamera() {
+        if (!started) return
+        usingFrontCamera = !usingFrontCamera
+        bindCamera()
+        onStateChanged?.invoke()
+    }
+
     private fun bindCamera() {
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
@@ -265,14 +284,15 @@ class CameraService : LifecycleService() {
                 .build()
                 .also { it.setAnalyzer(executor, FrameAnalyzer()) }
 
+            val selector = if (usingFrontCamera) {
+                CameraSelector.DEFAULT_FRONT_CAMERA
+            } else {
+                CameraSelector.DEFAULT_BACK_CAMERA
+            }
+
             try {
                 provider.unbindAll()
-                provider.bindToLifecycle(
-                    this,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
-                    previewUseCase,
-                    analysis
-                )
+                provider.bindToLifecycle(this, selector, previewUseCase, analysis)
                 applyPreview()
             } catch (e: Exception) {
                 val message = "تعذر تشغيل الكاميرا: ${e.message}"
@@ -282,7 +302,6 @@ class CameraService : LifecycleService() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    /** يربط الصورة بالواجهة إذا كانت ظاهرة، وإلا يوقف عرضها (الكاميرا تكمل شغلها) */
     fun applyPreview() {
         val useCase = preview ?: return
         useCase.setSurfaceProvider(previewView?.surfaceProvider)
@@ -333,20 +352,17 @@ class CameraService : LifecycleService() {
             try {
                 val now = System.currentTimeMillis()
 
-                // 1) كشف الحركة
                 if (now - lastCompareTime >= COMPARE_INTERVAL_MS) {
                     lastCompareTime = now
                     detectMotion(image, now)
                 }
 
-                // 2) البث على نفس الشبكة (فقط إذا فيه أحد متصل)
                 val mjpeg = server
                 if (mjpeg != null && mjpeg.clients.get() > 0 && now - lastStreamTime >= STREAM_INTERVAL_MS) {
                     lastStreamTime = now
                     mjpeg.update(imageToJpeg(image))
                 }
 
-                // 3) البث من أي مكان (فقط إذا فيه مشاهد متصل)
                 remote?.pushFrame(image)
             } finally {
                 image.close()

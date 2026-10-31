@@ -3,6 +3,8 @@ package com.example.trackview
 import android.content.Context
 import androidx.camera.core.ImageProxy
 import org.json.JSONObject
+import org.webrtc.AudioSource
+import org.webrtc.AudioTrack
 import org.webrtc.DataChannel
 import org.webrtc.DefaultVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
@@ -31,13 +33,13 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * البث من أي مكان بتقنية WebRTC.
+ * البث من أي مكان بتقنية WebRTC (صورة + صوت المايك).
  *
  * طريقة العمل:
  * 1) المشاهد (صفحة الويب) يكتب طلب انضمام في Firebase داخل rooms/<room>/join/<sid>
  * 2) هذي الكلاس تلقط الطلب، وتنشئ اتصال WebRTC وترسل العرض (offer) في Firebase
  * 3) المشاهد يرد بالإجابة (answer) ويتبادل الطرفين عناوين الاتصال (ICE)
- * 4) بعدها الفيديو يمشي مباشرة بين الجهازين، وFirebase تستخدم للتعارف فقط
+ * 4) بعدها الفيديو والصوت يمشون مباشرة بين الجهازين، وFirebase تستخدم للتعارف فقط
  */
 class RemoteStreamer(
     context: Context,
@@ -65,6 +67,8 @@ class RemoteStreamer(
     private var factory: PeerConnectionFactory? = null
     private var videoSource: VideoSource? = null
     private var videoTrack: VideoTrack? = null
+    private var audioSource: AudioSource? = null
+    private var audioTrack: AudioTrack? = null
 
     /** تحديثات الحالة تنعرض على الشاشة */
     @Volatile var onStatus: ((String) -> Unit)? = null
@@ -79,7 +83,6 @@ class RemoteStreamer(
         Thread {
             try {
                 initWebRtc()
-                // ننظف أي بيانات قديمة لهذي الغرفة
                 try {
                     http("DELETE", "rooms/$room.json", null)
                 } catch (e: Exception) {
@@ -107,7 +110,6 @@ class RemoteStreamer(
                 http("DELETE", "rooms/$room.json", null)
             } catch (e: Exception) {
             }
-            // ننتظر لين تتسكر كل الجلسات قبل ما نحرر الموارد
             var waited = 0
             while (sessions.isNotEmpty() && waited < 30) {
                 try {
@@ -122,6 +124,14 @@ class RemoteStreamer(
             }
             try {
                 videoSource?.dispose()
+            } catch (e: Exception) {
+            }
+            try {
+                audioTrack?.dispose()
+            } catch (e: Exception) {
+            }
+            try {
+                audioSource?.dispose()
             } catch (e: Exception) {
             }
             try {
@@ -150,10 +160,20 @@ class RemoteStreamer(
             .createPeerConnectionFactory()
         factory = f
 
-        val source = f.createVideoSource(false)
-        source.capturerObserver.onCapturerStarted(true)
-        videoSource = source
-        videoTrack = f.createVideoTrack("video0", source)
+        val vSource = f.createVideoSource(false)
+        vSource.capturerObserver.onCapturerStarted(true)
+        videoSource = vSource
+        videoTrack = f.createVideoTrack("video0", vSource)
+
+        // صوت المايك، يُلتقط تلقائيا من جهاز الصوت الافتراضي بالنظام
+        val audioConstraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+        }
+        val aSource = f.createAudioSource(audioConstraints)
+        audioSource = aSource
+        audioTrack = f.createAudioTrack("audio0", aSource)
 
         ready = true
     }
@@ -172,7 +192,6 @@ class RemoteStreamer(
                     while (keys.hasNext()) {
                         val sid = keys.next()
                         if (seenSessions.add(sid)) {
-                            // نمسح الطلب من القاعدة عشان ما ينقرأ مرة ثانية
                             netExecutor.execute {
                                 try {
                                     http("DELETE", "rooms/$room/join/$sid.json", null)
@@ -186,7 +205,6 @@ class RemoteStreamer(
                     }
                 }
             } catch (e: Exception) {
-                // مشكلة شبكة مؤقتة، نعيد المحاولة
             }
             sleepQuiet(1000)
         }
@@ -198,7 +216,8 @@ class RemoteStreamer(
 
     private fun runSession(sid: String) {
         val f = factory ?: return
-        val track = videoTrack ?: return
+        val vTrack = videoTrack ?: return
+        val aTrack = audioTrack
         val base = "rooms/$room/s/$sid"
 
         val connected = AtomicBoolean(false)
@@ -246,9 +265,9 @@ class RemoteStreamer(
         postStatus("مشاهد جديد يتصل…")
 
         try {
-            pc.addTrack(track, listOf("stream0"))
+            pc.addTrack(vTrack, listOf("stream0"))
+            if (aTrack != null) pc.addTrack(aTrack, listOf("stream0"))
 
-            // 1) إنشاء العرض (offer)
             val offerLatch = CountDownLatch(1)
             val offerRef = AtomicReference<SessionDescription?>(null)
             pc.createOffer(object : SimpleSdpObserver() {
@@ -276,13 +295,11 @@ class RemoteStreamer(
             }, offer)
             localLatch.await(10, TimeUnit.SECONDS)
 
-            // 2) نرسل العرض للمشاهد عبر Firebase
             val offerJson = JSONObject()
                 .put("type", "offer")
                 .put("sdp", offer.description)
             http("PUT", "$base/offer.json", offerJson.toString())
 
-            // 3) ننتظر الإجابة ونتبادل عناوين الاتصال
             val seenCandidates = HashSet<String>()
             var remoteSet = false
             val deadline = System.currentTimeMillis() + 60_000L
@@ -327,7 +344,6 @@ class RemoteStreamer(
                         }
                     }
                 } catch (e: Exception) {
-                    // مشكلة شبكة مؤقتة
                 }
 
                 val now = System.currentTimeMillis()
@@ -370,10 +386,9 @@ class RemoteStreamer(
     }
 
     // ------------------------------------------------------------------
-    // إرسال صور الكاميرا إلى WebRTC
+    // إرسال صور الكاميرا إلى WebRTC (الصوت يُلتقط تلقائيا بدون حاجة لكود هنا)
     // ------------------------------------------------------------------
 
-    /** تنادى من محلل الصور في MainActivity لكل صورة */
     fun pushFrame(image: ImageProxy) {
         if (!ready || activeViewers.get() == 0) return
 
@@ -436,7 +451,6 @@ class RemoteStreamer(
         }
     }
 
-    /** طلب HTTP بسيط على Firebase Realtime Database (REST) */
     private fun http(method: String, path: String, body: String?): String? {
         val conn = URL("$dbUrl/$path").openConnection() as HttpURLConnection
         try {

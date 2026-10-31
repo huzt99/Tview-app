@@ -27,6 +27,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var remoteStatusText: TextView
     private lateinit var addressText: TextView
     private lateinit var toggleButton: Button
+    private lateinit var switchCameraButton: Button
     private lateinit var remoteLink: String
 
     private val uiHandler = Handler(Looper.getMainLooper())
@@ -86,6 +87,20 @@ class MainActivity : AppCompatActivity() {
         remoteParams.topMargin = 280
         root.addView(remoteStatusText, remoteParams)
 
+        // زر تبديل الكاميرا (يمين أعلى الشاشة)
+        switchCameraButton = Button(this).apply {
+            text = "تبديل الكاميرا"
+            setOnClickListener { CameraService.switchCamera() }
+        }
+        val switchParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.TOP or Gravity.END
+        )
+        switchParams.topMargin = 100
+        switchParams.rightMargin = 24
+        root.addView(switchCameraButton, switchParams)
+
         // الأزرار والروابط (أسفل الشاشة)
         toggleButton = Button(this).apply {
             setOnClickListener {
@@ -134,7 +149,6 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
         refreshUi()
 
-        // أول فتح للتطبيق: نبدأ المراقبة تلقائيا
         if (savedInstanceState == null && !CameraService.monitoring) {
             ensurePermissionsAndStart()
         }
@@ -156,7 +170,6 @@ class MainActivity : AppCompatActivity() {
         CameraService.onMotion = null
         CameraService.onRemoteStatus = null
         CameraService.onStateChanged = null
-        // الشاشة ما عادت ظاهرة: نوقف عرض الصورة، والكاميرا تكمل شغلها بالخدمة
         CameraService.setPreviewView(null)
     }
 
@@ -177,6 +190,12 @@ class MainActivity : AppCompatActivity() {
         val needed = mutableListOf<String>()
         if (!hasCameraPermission()) {
             needed.add(Manifest.permission.CAMERA)
+        }
+        if (ContextCompat.checkSelfPermission(
+                this, Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            needed.add(Manifest.permission.RECORD_AUDIO)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
