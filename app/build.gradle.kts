@@ -33,4 +33,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
+
+    // WebRTC للبث من أي مكان
+    implementation("io.getstream:stream-webrtc-android:1.3.9")
 }
