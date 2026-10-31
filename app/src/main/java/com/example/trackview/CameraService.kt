@@ -168,26 +168,14 @@ class CameraService : LifecycleService() {
     }
 
     private fun buildNotification(): Notification {
-        val openIntent = PendingIntent.getActivity(
-            this, 0,
-            Intent(this, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-            PendingIntent.FLAG_IMMUTABLE
-        )
-        val stopIntent = PendingIntent.getService(
-            this, 1,
-            Intent(this, CameraService::class.java).setAction(ACTION_STOP),
-            PendingIntent.FLAG_IMMUTABLE
-        )
+        // بدون أي إجراء عند الضغط عليه، يبقى كإشعار عادي بدون وظيفة
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_menu_camera)
-            .setContentTitle("المراقبة شغالة")
-            .setContentText("الكاميرا تعمل بالخلفية")
-            .setContentIntent(openIntent)
-            .addAction(0, "إيقاف", stopIntent)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setContentTitle("الخدمات تعمل")
+            .setContentText(" ")
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setSilent(true)
-            .setOngoing(true)
+            .setOngoing(false)
             .build()
     }
 
