@@ -13,8 +13,11 @@
 </head>
 <body>
 <div id="status">جاري التحضير…</div>
-<video id="v" autoplay playsinline muted controls></video>
-<div><button id="btn">إعادة الاتصال</button></div>
+<video id="v" autoplay playsinline controls></video>
+<div>
+  <button id="unmute" style="background:#388E3C">🔊 تشغيل الصوت</button>
+  <button id="btn">إعادة الاتصال</button>
+</div>
 
 <script>
 const DB = "https://tview-12deb-default-rtdb.europe-west1.firebasedatabase.app";
@@ -132,6 +135,13 @@ async function connect() {
 }
 
 document.getElementById("btn").addEventListener("click", connect);
+
+document.getElementById("unmute").addEventListener("click", () => {
+  video.muted = false;
+  video.play().catch(() => {});
+  document.getElementById("unmute").style.display = "none";
+});
+
 connect();
 </script>
 </body>
