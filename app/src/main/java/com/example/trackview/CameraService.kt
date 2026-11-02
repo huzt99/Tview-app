@@ -10,7 +10,6 @@ import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.media.AudioManager
-import android.media.ToneGenerator
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.PowerManager
@@ -105,7 +104,6 @@ class CameraService : LifecycleService() {
     private var analysisExecutor: ExecutorService? = null
     private var server: MjpegServer? = null
     private var remote: RemoteStreamer? = null
-    private var toneGenerator: ToneGenerator? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
@@ -192,11 +190,7 @@ class CameraService : LifecycleService() {
         previousFrame = null
 
         analysisExecutor = Executors.newSingleThreadExecutor()
-        toneGenerator = try {
-            ToneGenerator(AudioManager.STREAM_ALARM, 100)
-        } catch (e: Exception) {
-            null
-        }
+        // تم إلغاء تهيئة ToneGenerator بالكامل لمنع أي أصوات مزعجة عند الحركة
 
         val mjpeg = MjpegServer(PORT, pin)
         mjpeg.start()
@@ -235,8 +229,6 @@ class CameraService : LifecycleService() {
         server?.stop()
         server = null
 
-        toneGenerator?.release()
-        toneGenerator = null
         analysisExecutor?.shutdown()
         analysisExecutor = null
 
@@ -388,10 +380,7 @@ class CameraService : LifecycleService() {
 
     private fun onMotionDetected(now: Long) {
         onMotion?.invoke()
-        if (now - lastAlertTime > ALERT_COOLDOWN_MS) {
-            lastAlertTime = now
-            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 200)
-        }
+        // تم إلغاء إطلاق الصوت (ToneGenerator) عند رصد الحركة تماماً
     }
 
     private fun imageToJpeg(image: ImageProxy): ByteArray {
