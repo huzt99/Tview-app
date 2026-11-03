@@ -176,7 +176,6 @@ class RemoteStreamer(
     // ------------------------------------------------------------------
 
     private fun pollJoinRequests() {
-        // تنظيف الغرفة بالكامل عند البث لمنع تعليق الجلسات المفتوحة مسبقاً
         try {
             http("DELETE", "rooms/$room/join.json", null)
             http("DELETE", "rooms/$room/s.json", null)
@@ -194,25 +193,40 @@ class RemoteStreamer(
                         netExecutor.execute {
                             try {
                                 http("DELETE", "rooms/$room/join/$sid.json", null)
-                            } catch (e: Exception) {
+                            } catch (e: Exception) {}
+                        }
+
+                        // إغلاق أي جلسة سابقة معلقة فور وصول طلب جديد
+                        if (sessions.isNotEmpty()) {
+                            for ((oldSid, pc) in sessions) {
+                                try {
+                                    pc.close()
+                                } catch (e: Exception) {}
+                                sessions.remove(oldSid)
+                                seenSessions.remove(oldSid)
+                                netExecutor.execute {
+                                    try {
+                                        http("DELETE", "rooms/$room/s/$oldSid.json", null)
+                                    } catch (e: Exception) {}
+                                }
                             }
                         }
 
                         seenSessions.remove(sid)
                         if (seenSessions.add(sid)) {
-                            if (sessions.size >= MAX_SESSIONS) {
-                                sessions.keys.firstOrNull()?.let { oldSid ->
-                                    sessions[oldSid]?.close()
-                                    sessions.remove(oldSid)
-                                }
-                            }
                             Thread { runSession(sid) }.start()
                         }
+                    }
+                } else {
+                    if (sessions.isEmpty() && running) {
+                        try {
+                            http("DELETE", "rooms/$room/s.json", null)
+                        } catch (e: Exception) {}
                     }
                 }
             } catch (e: Exception) {
             }
-            sleepQuiet(500)
+            sleepQuiet(400)
         }
     }
 
@@ -356,7 +370,7 @@ class RemoteStreamer(
                 if (!connected.get() && now > deadline) break
 
                 val d = disconnectedAt.get()
-                if (d != 0L && now - d > 15_000L) break
+                if (d != 0L && now - d > 10_000L) break
 
                 sleepQuiet(if (connected.get()) 2000L else 700L)
             }
