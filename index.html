@@ -72,6 +72,7 @@ async function connect() {
     video.srcObject = e.streams[0] || new MediaStream([e.track]);
     video.play().catch(() => {});
   };
+
   conn.onicecandidate = (e) => {
     if (!e.candidate) return;
     api("POST", base + "/v", {
@@ -80,6 +81,7 @@ async function connect() {
       candidate: e.candidate.candidate
     }).catch(() => {});
   };
+
   conn.oniceconnectionstatechange = () => {
     const s = conn.iceConnectionState;
     if (my !== session) return;
@@ -89,25 +91,24 @@ async function connect() {
       setStatus("انقطع الاتصال، جاري إعادة المحاولة تلقائياً…");
       setTimeout(() => {
         if (my === session) connect();
-      }, 3000);
+      }, 2500);
     }
   };
 
   try {
     await api("PUT", "rooms/" + room + "/join/" + sid, Date.now());
 
-    // ننتظر عرض الكاميرا (offer)
     let offer = null;
-    for (let i = 0; i < 25 && my === session; i++) {
+    for (let i = 0; i < 15 && my === session; i++) {
       offer = await api("GET", base + "/offer");
       if (offer) break;
-      await sleep(600);
+      await sleep(500);
     }
     if (my !== session) return;
-    
+
     if (!offer) {
-      setStatus("الكاميرا لم تستجب. جاري إعادة المحاولة تلقائياً...");
-      await sleep(2000);
+      setStatus("جاري إعادة المحاولة التلقائية لتجهيز الاتصال...");
+      await sleep(1500);
       if (my === session) connect();
       return;
     }
@@ -117,7 +118,6 @@ async function connect() {
     await conn.setLocalDescription(answer);
     await api("PUT", base + "/answer", { type: "answer", sdp: answer.sdp });
 
-    // نستقبل عناوين الاتصال من الكاميرا
     const seen = new Set();
     while (my === session && Date.now() - startedAt < 60000) {
       const list = await api("GET", base + "/c");
@@ -135,12 +135,12 @@ async function connect() {
         }
       }
       if (conn.iceConnectionState === "failed") break;
-      await sleep(1000);
+      await sleep(800);
     }
   } catch (e) {
     if (my === session) {
-      setStatus("خطأ في الاتصال، جارٍ إعادة المحاولة…");
-      await sleep(3000);
+      setStatus("جارٍ إعادة محاولة الاتصال…");
+      await sleep(2000);
       connect();
     }
   }
