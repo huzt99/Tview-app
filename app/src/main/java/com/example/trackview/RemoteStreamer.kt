@@ -34,12 +34,6 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * البث من أي مكان بتقنية WebRTC (صورة + صوت المايك).
- *
- * طريقة العمل:
- * 1) المشاهد (صفحة الويب) يكتب طلب انضمام في Firebase داخل rooms/<room>/join/<sid>
- * 2) هذي الكلاس تلقط الطلب، وتنشئ اتصال WebRTC وترسل العرض (offer) في Firebase
- * 3) المشاهد يرد بالإجابة (answer) ويتبادل الطرفين عناوين الاتصال (ICE)
- * 4) بعدها الفيديو والصوت يمشون مباشرة بين الجهازين، وFirebase تستخدم للتعارف فقط
  */
 class RemoteStreamer(
     context: Context,
@@ -165,7 +159,6 @@ class RemoteStreamer(
         videoSource = vSource
         videoTrack = f.createVideoTrack("video0", vSource)
 
-        // صوت المايك، يُلتقط تلقائيا من جهاز الصوت الافتراضي بالنظام
         val audioConstraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
@@ -183,6 +176,12 @@ class RemoteStreamer(
     // ------------------------------------------------------------------
 
     private fun pollJoinRequests() {
+        // تنظيف الغرفة بالكامل عند البث لمنع تعليق الجلسات المفتوحة مسبقاً
+        try {
+            http("DELETE", "rooms/$room/join.json", null)
+            http("DELETE", "rooms/$room/s.json", null)
+        } catch (e: Exception) {}
+
         while (running) {
             try {
                 val body = http("GET", "rooms/$room/join.json", null)
@@ -191,22 +190,29 @@ class RemoteStreamer(
                     val keys = obj.keys()
                     while (keys.hasNext()) {
                         val sid = keys.next()
+                        
+                        netExecutor.execute {
+                            try {
+                                http("DELETE", "rooms/$room/join/$sid.json", null)
+                            } catch (e: Exception) {
+                            }
+                        }
+
+                        seenSessions.remove(sid)
                         if (seenSessions.add(sid)) {
-                            netExecutor.execute {
-                                try {
-                                    http("DELETE", "rooms/$room/join/$sid.json", null)
-                                } catch (e: Exception) {
+                            if (sessions.size >= MAX_SESSIONS) {
+                                sessions.keys.firstOrNull()?.let { oldSid ->
+                                    sessions[oldSid]?.close()
+                                    sessions.remove(oldSid)
                                 }
                             }
-                            if (sessions.size < MAX_SESSIONS) {
-                                Thread { runSession(sid) }.start()
-                            }
+                            Thread { runSession(sid) }.start()
                         }
                     }
                 }
             } catch (e: Exception) {
             }
-            sleepQuiet(1000)
+            sleepQuiet(500)
         }
     }
 
@@ -369,6 +375,7 @@ class RemoteStreamer(
             activeViewers.decrementAndGet()
             try {
                 http("DELETE", "$base.json", null)
+                http("DELETE", "rooms/$room/join/$sid.json", null)
             } catch (e: Exception) {
             }
             if (running) postStatus("جاهز للمشاهدة من أي مكان")
@@ -386,7 +393,7 @@ class RemoteStreamer(
     }
 
     // ------------------------------------------------------------------
-    // إرسال صور الكاميرا إلى WebRTC (الصوت يُلتقط تلقائيا بدون حاجة لكود هنا)
+    // إرسال صور الكاميرا
     // ------------------------------------------------------------------
 
     fun pushFrame(image: ImageProxy) {
