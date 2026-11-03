@@ -9,7 +9,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.Matrix
-import android.media.AudioManager
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.PowerManager
@@ -136,13 +135,33 @@ class CameraService : LifecycleService() {
 
         startInForeground()
         startMonitoring()
-        return START_NOT_STICKY
+        scheduleHeartbeat()
+        return START_STICKY
     }
 
     override fun onDestroy() {
+        heartbeatHandler.removeCallbacksAndMessages(null)
         stopMonitoring()
         instance = null
         super.onDestroy()
+    }
+
+    // ------------------------------------------------------------------
+    // Heartbeat: يجدد الخدمة كل 9 دقائق عشان النظام ما يقتلها
+    // ------------------------------------------------------------------
+
+    private val heartbeatHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private fun scheduleHeartbeat() {
+        heartbeatHandler.removeCallbacksAndMessages(null)
+        heartbeatHandler.postDelayed({
+            if (started) {
+                // نجدد الإشعار عشان النظام يعرف إن الخدمة لسه حية
+                val manager = getSystemService(NotificationManager::class.java)
+                manager.notify(NOTIFICATION_ID, buildNotification())
+                scheduleHeartbeat()
+            }
+        }, 9 * 60 * 1000L)
     }
 
     // ------------------------------------------------------------------
@@ -190,8 +209,6 @@ class CameraService : LifecycleService() {
         previousFrame = null
 
         analysisExecutor = Executors.newSingleThreadExecutor()
-        // تم إلغاء تهيئة ToneGenerator بالكامل لمنع أي أصوات مزعجة عند الحركة
-
         val mjpeg = MjpegServer(PORT, pin)
         mjpeg.start()
         server = mjpeg
@@ -380,7 +397,7 @@ class CameraService : LifecycleService() {
 
     private fun onMotionDetected(now: Long) {
         onMotion?.invoke()
-        // تم إلغاء إطلاق الصوت (ToneGenerator) عند رصد الحركة تماماً
+        // الصوت محذوف حسب الطلب
     }
 
     private fun imageToJpeg(image: ImageProxy): ByteArray {
