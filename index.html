@@ -83,9 +83,14 @@ async function connect() {
   conn.oniceconnectionstatechange = () => {
     const s = conn.iceConnectionState;
     if (my !== session) return;
-    if (s === "connected" || s === "completed") setStatus("متصل ✅");
-    else if (s === "disconnected") setStatus("انقطع الاتصال…");
-    else if (s === "failed") setStatus("فشل الاتصال. اضغط إعادة الاتصال.");
+    if (s === "connected" || s === "completed") {
+      setStatus("متصل ✅");
+    } else if (s === "disconnected" || s === "failed" || s === "closed") {
+      setStatus("انقطع الاتصال، جاري إعادة المحاولة تلقائياً…");
+      setTimeout(() => {
+        if (my === session) connect();
+      }, 3000);
+    }
   };
 
   try {
@@ -93,14 +98,17 @@ async function connect() {
 
     // ننتظر عرض الكاميرا (offer)
     let offer = null;
-    for (let i = 0; i < 40 && my === session; i++) {
+    for (let i = 0; i < 25 && my === session; i++) {
       offer = await api("GET", base + "/offer");
       if (offer) break;
-      await sleep(700);
+      await sleep(600);
     }
     if (my !== session) return;
+    
     if (!offer) {
-      setStatus("الكاميرا ما ردّت. تأكد أن التطبيق شغال على جوال الكاميرا.");
+      setStatus("الكاميرا لم تستجب. جاري إعادة المحاولة تلقائياً...");
+      await sleep(2000);
+      if (my === session) connect();
       return;
     }
 
@@ -111,7 +119,7 @@ async function connect() {
 
     // نستقبل عناوين الاتصال من الكاميرا
     const seen = new Set();
-    while (my === session && Date.now() - startedAt < 90000) {
+    while (my === session && Date.now() - startedAt < 60000) {
       const list = await api("GET", base + "/c");
       if (list) {
         for (const [key, c] of Object.entries(list)) {
@@ -130,7 +138,11 @@ async function connect() {
       await sleep(1000);
     }
   } catch (e) {
-    if (my === session) setStatus("خطأ: " + e.message);
+    if (my === session) {
+      setStatus("خطأ في الاتصال، جارٍ إعادة المحاولة…");
+      await sleep(3000);
+      connect();
+    }
   }
 }
 
