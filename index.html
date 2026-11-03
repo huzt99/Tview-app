@@ -26,6 +26,7 @@ const statusEl = document.getElementById("status");
 const video = document.getElementById("v");
 let pc = null;
 let session = 0;
+let currentSid = null; // حفظ معرف الجلسة الحالي للحذف الفوري عند الإغلاق
 
 function setStatus(t) { statusEl.textContent = t; }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -47,6 +48,15 @@ async function api(method, path, body) {
   return res.json();
 }
 
+// تنظيف الجلسة فوراً عند إغلاق أو مغادرة الصفحة
+window.addEventListener('pagehide', () => {
+  if (room && currentSid) {
+    const blob = new Blob([JSON.stringify(null)], { type: 'application/json' });
+    navigator.sendBeacon(DB + "/rooms/" + room + "/join/" + currentSid + ".json", blob);
+    navigator.sendBeacon(DB + "/rooms/" + room + "/s/" + currentSid + ".json", blob);
+  }
+});
+
 async function connect() {
   if (!room) {
     setStatus("الرابط ناقص: ما فيه كود الغرفة. افتح الرابط من التطبيق.");
@@ -56,6 +66,7 @@ async function connect() {
   if (pc) { try { pc.close(); } catch (e) {} pc = null; }
 
   const sid = randomId();
+  currentSid = sid; // تعيين الجلسة الحالية
   const base = "rooms/" + room + "/s/" + sid;
   const startedAt = Date.now();
   setStatus("جاري الاتصال بالكاميرا…");
