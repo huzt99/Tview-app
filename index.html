@@ -16,6 +16,7 @@
 <video id="v" autoplay playsinline controls></video>
 <div>
   <button id="unmute" style="background:#388E3C">🔊 تشغيل الصوت</button>
+  <button id="switchBtn" style="background:#7B1FA2">🔄 تبديل الكاميرا</button>
   <button id="btn">إعادة الاتصال</button>
 </div>
 
@@ -158,6 +159,13 @@ async function connect() {
 }
 
 document.getElementById("btn").addEventListener("click", connect);
+
+document.getElementById("switchBtn").addEventListener("click", async () => {
+  if (!room) return;
+  try {
+    await api("PUT", "rooms/" + room + "/cmd", { action: "switch_camera" });
+  } catch (e) {}
+});
 
 document.getElementById("unmute").addEventListener("click", () => {
   video.muted = false;
