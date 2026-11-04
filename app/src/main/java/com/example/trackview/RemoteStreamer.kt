@@ -67,6 +67,9 @@ class RemoteStreamer(
     /** تحديثات الحالة تنعرض على الشاشة */
     @Volatile var onStatus: ((String) -> Unit)? = null
 
+    /** ينادى لما يصل أمر تبديل الكاميرا من صفحة المشاهدة */
+    @Volatile var onSwitchCamera: (() -> Unit)? = null
+
     // ------------------------------------------------------------------
     // التشغيل والإيقاف
     // ------------------------------------------------------------------
@@ -226,6 +229,19 @@ class RemoteStreamer(
                 }
             } catch (e: Exception) {
             }
+            // راقب أوامر التحكم (تبديل الكاميرا) من صفحة المشاهدة
+            try {
+                val cmd = http("GET", "rooms/$room/cmd.json", null)
+                if (!cmd.isNullOrBlank() && cmd != "null") {
+                    val action = JSONObject(cmd).optString("action")
+                    if (action == "switch_camera") {
+                        http("DELETE", "rooms/$room/cmd.json", null)
+                        onSwitchCamera?.invoke()
+                    }
+                }
+            } catch (e: Exception) {
+            }
+
             sleepQuiet(400)
         }
     }

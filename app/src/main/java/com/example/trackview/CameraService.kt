@@ -221,6 +221,9 @@ class CameraService : LifecycleService() {
             lastRemoteStatus = message
             onRemoteStatus?.invoke(message)
         }
+        streamer.onSwitchCamera = {
+            doSwitchCamera()
+        }
         streamer.start()
         remote = streamer
 
