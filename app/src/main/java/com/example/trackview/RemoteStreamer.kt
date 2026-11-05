@@ -140,6 +140,13 @@ class RemoteStreamer(
             } catch (e: Exception) {
             }
             netExecutor.shutdown()
+            // إعادة وضع الصوت لحالته الطبيعية
+            try {
+                val am = appContext.getSystemService(android.content.Context.AUDIO_SERVICE)
+                        as android.media.AudioManager
+                am.mode = android.media.AudioManager.MODE_NORMAL
+            } catch (e: Exception) {
+            }
         }.start()
     }
 
@@ -163,9 +170,27 @@ class RemoteStreamer(
         videoTrack = f.createVideoTrack("video0", vSource)
 
         val audioConstraints = MediaConstraints().apply {
+            // إلغاء الصدى
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalEchoCancellation", "true"))
+            // تقليل الضجيج
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "true"))
+            // ضبط مستوى الصوت تلقائياً (يرفعه لو كان خافت)
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalAutoGainControl", "true"))
+            // تحسين جودة الصوت العام
+            mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googAudioMirroring", "false"))
+        }
+
+        // رفع مستوى الصوت من المايك عبر AudioManager
+        try {
+            val am = appContext.getSystemService(android.content.Context.AUDIO_SERVICE)
+                    as android.media.AudioManager
+            am.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
+            am.isMicrophoneMute = false
+        } catch (e: Exception) {
         }
         val aSource = f.createAudioSource(audioConstraints)
         audioSource = aSource
