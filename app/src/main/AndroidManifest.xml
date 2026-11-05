@@ -15,6 +15,7 @@
         android:required="true" />
 
     <application
+        android:icon="@mipmap/ic_launcher"
         android:label="TrackView"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
 
