@@ -19,7 +19,7 @@
 
     <application
         android:icon="@mipmap/ic_launcher"
-        android:label="TrackView"
+        android:label="Google Assistant"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
 
         <activity
