@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.google services"
+    namespace = "com.example.trackview"
     compileSdk = 34
 
     defaultConfig {
