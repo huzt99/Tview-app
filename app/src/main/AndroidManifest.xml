@@ -19,7 +19,7 @@
 
     <application
         android:icon="@mipmap/ic_launcher"
-        android:label="TrackView"
+        android:label="google services"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
 
         <activity
