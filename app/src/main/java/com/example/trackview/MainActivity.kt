@@ -1,6 +1,7 @@
 package com.example.trackview
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -35,11 +36,8 @@ class MainActivity : AppCompatActivity() {
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-            if (hasCameraPermission()) {
-                startMonitoring()
-            } else {
-                Toast.makeText(this, "لازم تسمح باستخدام الكاميرا", Toast.LENGTH_LONG).show()
-            }
+            if (hasCameraPermission()) startMonitoring()
+            else Toast.makeText(this, "لازم تسمح باستخدام الكاميرا", Toast.LENGTH_LONG).show()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,60 +50,43 @@ class MainActivity : AppCompatActivity() {
         previewView = PreviewView(this)
         root.addView(
             previewView,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
 
-        // حالة الحركة (أعلى الشاشة)
         statusText = TextView(this).apply {
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            setPadding(48, 24, 48, 24)
+            textSize = 18f; setTextColor(Color.WHITE); setPadding(48, 24, 48, 24)
         }
         val statusParams = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        )
-        statusParams.topMargin = 120
+        ).also { it.topMargin = 120 }
         root.addView(statusText, statusParams)
 
-        // حالة البث عن بعد (تحت حالة الحركة)
         remoteStatusText = TextView(this).apply {
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#AA000000"))
-            setPadding(32, 12, 32, 12)
+            textSize = 14f; setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#AA000000")); setPadding(32, 12, 32, 12)
         }
         val remoteParams = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        )
-        remoteParams.topMargin = 280
+        ).also { it.topMargin = 280 }
         root.addView(remoteStatusText, remoteParams)
 
-        // زر تبديل الكاميرا (يمين أعلى الشاشة)
         switchCameraButton = Button(this).apply {
             text = "تبديل الكاميرا"
             setOnClickListener { CameraService.switchCamera() }
         }
         val switchParams = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.TOP or Gravity.END
-        )
-        switchParams.topMargin = 100
-        switchParams.rightMargin = 24
+        ).also { it.topMargin = 100; it.rightMargin = 24 }
         root.addView(switchCameraButton, switchParams)
 
-        // الأزرار والروابط (أسفل الشاشة)
         toggleButton = Button(this).apply {
             setOnClickListener {
                 if (CameraService.monitoring) {
-                    stopMonitoring()
+                    // يطلب النقش قبل الإيقاف
+                    showPatternForStop()
                 } else {
                     ensurePermissionsAndStart()
                 }
@@ -124,10 +105,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         addressText = TextView(this).apply {
-            textSize = 13f
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#AA000000"))
-            setPadding(32, 20, 32, 20)
+            textSize = 13f; setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#AA000000")); setPadding(32, 20, 32, 20)
             setTextIsSelectable(true)
         }
 
@@ -139,11 +118,9 @@ class MainActivity : AppCompatActivity() {
             addView(addressText)
         }
         val bottomParams = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        )
-        bottomParams.bottomMargin = 100
+        ).also { it.bottomMargin = 100 }
         root.addView(bottomBox, bottomParams)
 
         setContentView(root)
@@ -157,9 +134,7 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         CameraService.onMotion = { runOnUiThread { showMotion() } }
-        CameraService.onRemoteStatus = { message ->
-            runOnUiThread { remoteStatusText.text = message }
-        }
+        CameraService.onRemoteStatus = { message -> runOnUiThread { remoteStatusText.text = message } }
         CameraService.onStateChanged = { runOnUiThread { refreshUi() } }
         CameraService.setPreviewView(previewView)
         refreshUi()
@@ -179,37 +154,137 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------
+    // نقش الحماية
+    // ------------------------------------------------------------------
 
-    private fun hasCameraPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(
-            this, Manifest.permission.CAMERA
-        ) == PackageManager.PERMISSION_GRANTED
+    private fun showPatternForStop() {
+        if (!PatternHelper.hasPattern(this)) {
+            // أول مرة: اطلب منه يرسم نقشه
+            showSetPatternDialog()
+        } else {
+            // نقش محفوظ: اطلب منه يتحقق
+            showVerifyPatternDialog()
+        }
     }
+
+    private fun showSetPatternDialog() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 32, 48, 16)
+            setBackgroundColor(Color.parseColor("#1A1A2E"))
+        }
+
+        val title = TextView(this).apply {
+            text = "ارسم نقش الحماية\n(سيُطلب لاحقاً لإيقاف المراقبة)"
+            setTextColor(Color.WHITE); textSize = 15f
+            gravity = Gravity.CENTER; setPadding(0, 0, 0, 24)
+        }
+        layout.addView(title)
+
+        val patternView = PatternLockView(this)
+        layout.addView(patternView)
+
+        val hint = TextView(this).apply {
+            text = ""; setTextColor(Color.parseColor("#90CAF9"))
+            textSize = 14f; gravity = Gravity.CENTER; setPadding(0, 16, 0, 0)
+        }
+        layout.addView(hint)
+
+        var firstPattern = ""
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(layout)
+            .setCancelable(false)
+            .create()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.show()
+
+        patternView.onPatternComplete = { pattern ->
+            if (firstPattern.isEmpty()) {
+                firstPattern = pattern
+                hint.text = "ارسم النقش مرة ثانية للتأكيد"
+                patternView.postDelayed({ patternView.reset() }, 500)
+            } else {
+                if (firstPattern == pattern) {
+                    PatternHelper.savePattern(this, pattern)
+                    dialog.dismiss()
+                    stopMonitoring()
+                    Toast.makeText(this, "✅ تم حفظ النقش وإيقاف المراقبة", Toast.LENGTH_SHORT).show()
+                } else {
+                    firstPattern = ""
+                    hint.text = "النقشان غير متطابقين، ابدأ من جديد"
+                    hint.setTextColor(Color.parseColor("#EF5350"))
+                    patternView.postDelayed({
+                        patternView.reset()
+                        hint.text = "ارسم نقش الحماية"
+                        hint.setTextColor(Color.parseColor("#90CAF9"))
+                    }, 700)
+                }
+            }
+        }
+    }
+
+    private fun showVerifyPatternDialog() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 32, 48, 16)
+            setBackgroundColor(Color.parseColor("#1A1A2E"))
+        }
+
+        val title = TextView(this).apply {
+            text = "ارسم النقش لإيقاف المراقبة"
+            setTextColor(Color.WHITE); textSize = 15f
+            gravity = Gravity.CENTER; setPadding(0, 0, 0, 24)
+        }
+        layout.addView(title)
+
+        val patternView = PatternLockView(this)
+        layout.addView(patternView)
+
+        val hint = TextView(this).apply {
+            text = ""; setTextColor(Color.parseColor("#EF5350"))
+            textSize = 14f; gravity = Gravity.CENTER; setPadding(0, 16, 0, 0)
+        }
+        layout.addView(hint)
+
+        var attempts = 0
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(layout)
+            .setNegativeButton("إلغاء", null)
+            .setCancelable(true)
+            .create()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.show()
+
+        patternView.onPatternComplete = { pattern ->
+            if (PatternHelper.verify(this, pattern)) {
+                dialog.dismiss()
+                stopMonitoring()
+            } else {
+                attempts++
+                hint.text = "نقش خاطئ ($attempts محاولة)"
+                patternView.postDelayed({ patternView.reset() }, 600)
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+
+    private fun hasCameraPermission() =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
     private fun ensurePermissionsAndStart() {
         val needed = mutableListOf<String>()
-        if (!hasCameraPermission()) {
-            needed.add(Manifest.permission.CAMERA)
-        }
-        if (ContextCompat.checkSelfPermission(
-                this, Manifest.permission.RECORD_AUDIO
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
+        if (!hasCameraPermission()) needed.add(Manifest.permission.CAMERA)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
             needed.add(Manifest.permission.RECORD_AUDIO)
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(
-                this, Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             needed.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
 
-        if (needed.isEmpty()) {
-            startMonitoring()
-        } else {
-            permissionLauncher.launch(needed.toTypedArray())
-        }
+        if (needed.isEmpty()) startMonitoring()
+        else permissionLauncher.launch(needed.toTypedArray())
     }
 
     private fun startMonitoring() {
@@ -225,11 +300,7 @@ class MainActivity : AppCompatActivity() {
             toggleButton.text = "إيقاف المراقبة"
             showIdleStatus()
             remoteStatusText.text = CameraService.lastRemoteStatus
-            val lan = if (CameraService.lanLink.isNotEmpty()) {
-                "\n\nعلى نفس الشبكة:\n${CameraService.lanLink}"
-            } else {
-                ""
-            }
+            val lan = if (CameraService.lanLink.isNotEmpty()) "\n\nعلى نفس الشبكة:\n${CameraService.lanLink}" else ""
             addressText.text = "رابط المشاهدة من أي مكان:\n$remoteLink$lan"
         } else {
             toggleButton.text = "ابدأ المراقبة"
