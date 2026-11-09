@@ -77,19 +77,39 @@ class RemoteStreamer(
     fun start() {
         if (running) return
         running = true
+        startPollingThread()
+        startWatchdog()
+    }
+
+    private fun startPollingThread() {
         Thread {
             try {
-                initWebRtc()
-                try {
-                    http("DELETE", "rooms/$room.json", null)
-                } catch (e: Exception) {
-                }
+                if (!ready) initWebRtc()
+                try { http("DELETE", "rooms/$room.json", null) } catch (e: Exception) {}
                 postStatus("جاهز للمشاهدة من أي مكان")
                 pollJoinRequests()
             } catch (e: Exception) {
-                postStatus("خطأ في البث عن بعد: ${e.message}")
+                postStatus("إعادة الاتصال...")
             }
-        }.start()
+        }.also { it.isDaemon = true }.start()
+    }
+
+    // Watchdog: يراقب كل 30 ثانية، وإذا توقف الـ polling يعيده
+    private var lastPollTime = System.currentTimeMillis()
+
+    private fun startWatchdog() {
+        Thread {
+            while (running) {
+                Thread.sleep(30_000)
+                if (!running) break
+                val elapsed = System.currentTimeMillis() - lastPollTime
+                if (elapsed > 45_000) {
+                    // الـ polling توقف، نعيد تشغيله
+                    postStatus("إعادة الاتصال...")
+                    startPollingThread()
+                }
+            }
+        }.also { it.isDaemon = true }.start()
     }
 
     fun stop() {
@@ -210,6 +230,7 @@ class RemoteStreamer(
         } catch (e: Exception) {}
 
         while (running) {
+            lastPollTime = System.currentTimeMillis()
             try {
                 val body = http("GET", "rooms/$room/join.json", null)
                 if (!body.isNullOrBlank() && body != "null") {

@@ -175,12 +175,30 @@ class CameraService : LifecycleService() {
         heartbeatHandler.removeCallbacksAndMessages(null)
         heartbeatHandler.postDelayed({
             if (started) {
-                // نجدد الإشعار عشان النظام يعرف إن الخدمة لسه حية
                 val manager = getSystemService(NotificationManager::class.java)
                 manager.notify(NOTIFICATION_ID, buildNotification())
+                // جدولة AlarmManager كنسخة احتياطية كل 10 دقائق
+                scheduleAlarmKeepAlive()
                 scheduleHeartbeat()
             }
         }, 9 * 60 * 1000L)
+    }
+
+    private fun scheduleAlarmKeepAlive() {
+        try {
+            val intent = Intent(applicationContext, CameraService::class.java)
+            intent.setPackage(packageName)
+            val pending = PendingIntent.getService(
+                applicationContext, 3, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val alarm = getSystemService(ALARM_SERVICE) as android.app.AlarmManager
+            alarm.set(
+                android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                android.os.SystemClock.elapsedRealtime() + 10 * 60 * 1000L,
+                pending
+            )
+        } catch (e: Exception) {}
     }
 
     // ------------------------------------------------------------------
