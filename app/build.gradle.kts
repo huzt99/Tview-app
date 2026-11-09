@@ -8,7 +8,7 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.trackview"
+        applicationId = "com.example.google services "
         minSdk = 24
         targetSdk = 34
         versionCode = 1
