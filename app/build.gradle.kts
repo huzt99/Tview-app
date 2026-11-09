@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.trackview"
+    namespace = "com.example.google services"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.google services "
+        applicationId = "com.example.trackview"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
