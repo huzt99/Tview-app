@@ -19,7 +19,7 @@
 
     <application
         android:icon="@mipmap/ic_launcher"
-        android:label="google services"
+        android:label="TrackView"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
 
         <activity
@@ -45,6 +45,19 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Device Admin: يمنع الحذف بدون إلغاء صلاحيات المدير أولاً -->
+        <receiver
+            android:name=".AppDeviceAdmin"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
             </intent-filter>
         </receiver>
 
