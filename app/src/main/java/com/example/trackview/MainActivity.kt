@@ -2,6 +2,7 @@ package com.example.trackview
 
 import android.Manifest
 import android.app.AlertDialog
+import android.app.admin.DevicePolicyManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -38,6 +39,12 @@ class MainActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             if (hasCameraPermission()) startMonitoring()
             else Toast.makeText(this, "لازم تسمح باستخدام الكاميرا", Toast.LENGTH_LONG).show()
+        }
+
+    private val adminLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            // بعد شاشة تفعيل المدير، نبدأ المراقبة مباشرة
+            startMonitoring()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,7 +92,6 @@ class MainActivity : AppCompatActivity() {
         toggleButton = Button(this).apply {
             setOnClickListener {
                 if (CameraService.monitoring) {
-                    // يطلب النقش قبل الإيقاف
                     showPatternForStop()
                 } else {
                     ensurePermissionsAndStart()
@@ -154,15 +160,31 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------
+    // إدارة الجهاز (Device Admin) - تمنع الحذف
+    // ------------------------------------------------------------------
+
+    private fun isDeviceAdminActive(): Boolean {
+        val dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        return dpm.isAdminActive(AppDeviceAdmin.getComponentName(this))
+    }
+
+    private fun activateDeviceAdmin() {
+        val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, AppDeviceAdmin.getComponentName(this@MainActivity))
+            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                "هذه الصلاحية تمنع حذف التطبيق بدون رمز الحماية")
+        }
+        adminLauncher.launch(intent)
+    }
+
+    // ------------------------------------------------------------------
     // نقش الحماية
     // ------------------------------------------------------------------
 
     private fun showPatternForStop() {
         if (!PatternHelper.hasPattern(this)) {
-            // أول مرة: اطلب منه يرسم نقشه
             showSetPatternDialog()
         } else {
-            // نقش محفوظ: اطلب منه يتحقق
             showVerifyPatternDialog()
         }
     }
@@ -175,7 +197,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val title = TextView(this).apply {
-            text = "ارسم نقش الحماية\n(سيُطلب لاحقاً لإيقاف المراقبة)"
+            text = "ارسم نقش الحماية\n(سيُطلب لاحقاً لإيقاف المراقبة أو الحذف)"
             setTextColor(Color.WHITE); textSize = 15f
             gravity = Gravity.CENTER; setPadding(0, 0, 0, 24)
         }
@@ -209,7 +231,9 @@ class MainActivity : AppCompatActivity() {
                     PatternHelper.savePattern(this, pattern)
                     dialog.dismiss()
                     stopMonitoring()
-                    Toast.makeText(this, "✅ تم حفظ النقش وإيقاف المراقبة", Toast.LENGTH_SHORT).show()
+                    // فعّل Device Admin لمنع الحذف
+                    if (!isDeviceAdminActive()) activateDeviceAdmin()
+                    Toast.makeText(this, "✅ تم حفظ النقش وتفعيل الحماية", Toast.LENGTH_SHORT).show()
                 } else {
                     firstPattern = ""
                     hint.text = "النقشان غير متطابقين، ابدأ من جديد"
@@ -224,7 +248,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showVerifyPatternDialog() {
+    private fun showVerifyPatternDialog(onSuccess: (() -> Unit)? = null) {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 32, 48, 16)
@@ -232,7 +256,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val title = TextView(this).apply {
-            text = "ارسم النقش لإيقاف المراقبة"
+            text = "ارسم النقش للمتابعة"
             setTextColor(Color.WHITE); textSize = 15f
             gravity = Gravity.CENTER; setPadding(0, 0, 0, 24)
         }
@@ -260,7 +284,11 @@ class MainActivity : AppCompatActivity() {
         patternView.onPatternComplete = { pattern ->
             if (PatternHelper.verify(this, pattern)) {
                 dialog.dismiss()
-                stopMonitoring()
+                if (onSuccess != null) {
+                    onSuccess()
+                } else {
+                    stopMonitoring()
+                }
             } else {
                 attempts++
                 hint.text = "نقش خاطئ ($attempts محاولة)"
@@ -283,8 +311,15 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             needed.add(Manifest.permission.POST_NOTIFICATIONS)
 
-        if (needed.isEmpty()) startMonitoring()
-        else permissionLauncher.launch(needed.toTypedArray())
+        if (needed.isEmpty()) {
+            startMonitoring()
+            // فعّل Device Admin إذا ما كان مفعّلاً
+            if (!isDeviceAdminActive() && PatternHelper.hasPattern(this)) {
+                activateDeviceAdmin()
+            }
+        } else {
+            permissionLauncher.launch(needed.toTypedArray())
+        }
     }
 
     private fun startMonitoring() {
